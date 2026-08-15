@@ -66,7 +66,7 @@ def preprocess(features_categorical: List[str], features_embeddings: List[str], 
     CALCULATE EMBEDDINGS
     """
     logging.info("CALCULATE EMBEDDINGS")
-    sentence_transformer: SentenceTransformer = SentenceTransformer("multi-qa-MiniLM-L6-cos-v1", cache_folder=str(Path(__file__).parents[2] / ".cache"))
+    sentence_transformer: SentenceTransformer = SentenceTransformer("multi-qa-MiniLM-L6-cos-v1", cache_folder=str(Path(__file__).parents[1] / ".cache"))
     for feature in features_embeddings:
         feature_values = list(inspections[feature].values)
         embeddings = sentence_transformer.encode(feature_values)

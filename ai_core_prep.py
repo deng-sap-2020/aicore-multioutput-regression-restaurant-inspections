@@ -22,7 +22,7 @@ logging.basicConfig(format="%(asctime)s:%(name)s:%(levelname)s - %(message)s", l
 
 RESOURCE_GROUP = environ["AICORE_RESOURCE_GROUP"]
 CONNECTION_NAME = "default"
-PATH_PREFIX = "app"
+PATH_PREFIX = ""
 
 _ROOT = Path(__file__).parent
 TRAINING_WORKFLOW = _ROOT / "workflows" / "train.yaml"
@@ -122,24 +122,33 @@ def create_resource_group(client):
 
 
 def register_s3_secret(client):
-    def _call():
-        client.rest_client.post(
-            path="/admin/objectStoreSecrets",
-            body={
-                "name": CONNECTION_NAME,
-                "type": "S3",
-                "endpoint": environ["S3_HOST"],
-                "bucket": environ["S3_BUCKET"],
-                "pathPrefix": PATH_PREFIX,
-                "region": environ["S3_REGION"],
-                "data": {
-                    "AWS_ACCESS_KEY_ID": environ["S3_ACCESS_KEY_ID"],
-                    "AWS_SECRET_ACCESS_KEY": environ["S3_SECRET_ACCESS_KEY"],
-                },
-            },
+    # Always delete and recreate to ensure pathPrefix is correct.
+    try:
+        client.rest_client.delete(
+            path=f"/admin/objectStoreSecrets/{CONNECTION_NAME}",
             resource_group=RESOURCE_GROUP,
         )
-    _try("Register S3 object store secret", _call)
+        logging.info("Deleted existing S3 object store secret.")
+    except Exception:
+        pass
+
+    client.rest_client.post(
+        path="/admin/objectStoreSecrets",
+        body={
+            "name": CONNECTION_NAME,
+            "type": "S3",
+            "endpoint": environ["S3_HOST"],
+            "bucket": environ["S3_BUCKET"],
+            "pathPrefix": PATH_PREFIX,
+            "region": environ["S3_REGION"],
+            "data": {
+                "AWS_ACCESS_KEY_ID": environ["S3_ACCESS_KEY_ID"],
+                "AWS_SECRET_ACCESS_KEY": environ["S3_SECRET_ACCESS_KEY"],
+            },
+        },
+        resource_group=RESOURCE_GROUP,
+    )
+    logging.info(f"S3 object store secret registered with pathPrefix='{PATH_PREFIX}'")
 
 
 def register_training_artifact(lm_client):
@@ -151,7 +160,7 @@ def register_training_artifact(lm_client):
     resp = lm_client.artifact.create(
         name=RESOURCE_GROUP,
         kind=Artifact.Kind.DATASET,
-        url=f"ai://{CONNECTION_NAME}/data",
+        url=f"ai://{CONNECTION_NAME}/app/data",
         description="Restaurant inspections dataset",
         scenario_id=scenario_id,
     )

@@ -8,8 +8,8 @@ load_dotenv(dotenv_path=Path(__file__).parent / "local.env")
 
 logging.basicConfig(format="%(asctime)s:%(name)s:%(levelname)s - %(message)s", level=logging.INFO)
 
-# AI Core resolves ai://default/data to s3://<bucket>/<PATH_PREFIX>/data/
-# PATH_PREFIX is "app", so the target key is: app/data/inspections.csv
+# S3 key matches the artifact URL ai://default/app/data registered in ai_core_prep.py.
+# The object store secret has no pathPrefix, so the key is used as-is.
 S3_KEY = "app/data/inspections.csv"
 LOCAL_FILE = Path(__file__).parent / "data" / "inspections.csv"
 

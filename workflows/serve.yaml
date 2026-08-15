@@ -26,7 +26,7 @@ spec:
           custom:
             container:
               name: kfserving-container
-              image: <DOCKER-IMAGE-SERVING-REPO>
+              image: zhoudeng2026/restaurant-serve:latest
               ports:
                 - containerPort: 9001
                   protocol: TCP
