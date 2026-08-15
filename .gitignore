@@ -1,2 +1,5 @@
 local.env
 /prompt
+/.cache
+/resources
+/model_output

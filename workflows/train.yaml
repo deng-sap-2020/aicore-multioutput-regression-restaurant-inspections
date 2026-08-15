@@ -36,7 +36,7 @@ spec:
               none: {}
       container:
         # URL of Docker image that was previously uploaded to Docker Hub.
-        image: <DOCKER-IMAGE-REPO>
+        image: docker.io/zhoudeng2026/restaurant-train:latest
         imagePullPolicy: Always
         command: ["/bin/sh", "-c"]
         args:

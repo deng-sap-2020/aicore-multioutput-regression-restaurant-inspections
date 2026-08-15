@@ -8,8 +8,11 @@ load_dotenv(dotenv_path=Path(__file__).parents[2] / "local.env")
 import logging
 import joblib
 import lightgbm as lgb
+import numpy as np
 import pandas as pd
 from sentence_transformers import SentenceTransformer
+from sklearn.metrics import mean_squared_error as mse
+from sklearn.model_selection import train_test_split
 from sklearn.multioutput import MultiOutputRegressor
 from sklearn.preprocessing import OrdinalEncoder, StandardScaler
 
@@ -63,7 +66,7 @@ def preprocess(features_categorical: List[str], features_embeddings: List[str], 
     CALCULATE EMBEDDINGS
     """
     logging.info("CALCULATE EMBEDDINGS")
-    sentence_transformer: SentenceTransformer = SentenceTransformer("multi-qa-MiniLM-L6-cos-v1", cache_folder="/app/.cache")
+    sentence_transformer: SentenceTransformer = SentenceTransformer("multi-qa-MiniLM-L6-cos-v1", cache_folder=str(Path(__file__).parents[2] / ".cache"))
     for feature in features_embeddings:
         feature_values = list(inspections[feature].values)
         embeddings = sentence_transformer.encode(feature_values)
@@ -73,13 +76,20 @@ def preprocess(features_categorical: List[str], features_embeddings: List[str], 
     return inspections_processed
 
 def train(inspections_processed: pd.DataFrame, labels: List[str]):
-    
+
     Y = inspections_processed[labels]
     X = inspections_processed.drop(labels, axis=1)
-    
+
+    X_train, X_val, Y_train, Y_val = train_test_split(X, Y, test_size=0.2, random_state=42)
+
     regressor = lgb.LGBMRegressor()
     model: MultiOutputRegressor = MultiOutputRegressor(estimator=regressor)
-    model.fit(X, Y)
+    model.fit(X_train, Y_train)
+
+    preds = model.predict(X_val)
+    for i, label in enumerate(labels):
+        rmse = np.sqrt(mse(Y_val.iloc[:, i], preds[:, i]))
+        logging.info(f"{label} validation RMSE: {rmse:.4f}")
 
     # Save the model to disk in the filesystem of the docker container.
     joblib.dump(model, open(f"{MODEL_OUTPUT_PATH}/{MODEL_NAME}", "wb"))
