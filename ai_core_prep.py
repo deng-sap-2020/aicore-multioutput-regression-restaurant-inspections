@@ -12,7 +12,7 @@ from ai_api_client_sdk.models.artifact import Artifact
 from ai_api_client_sdk.models.input_artifact_binding import InputArtifactBinding
 from ai_api_client_sdk.models.status import Status
 
-load_dotenv(dotenv_path=Path(__file__).parents[1] / "local.env")
+load_dotenv(dotenv_path=Path(__file__).parent / "local.env")
 
 # Required in local.env but not yet present — add these two lines:
 #   GITHUB_USER=<your-github-username>
@@ -24,7 +24,7 @@ RESOURCE_GROUP = environ["AICORE_RESOURCE_GROUP"]
 CONNECTION_NAME = "default"
 PATH_PREFIX = "app"
 
-_ROOT = Path(__file__).parents[1]
+_ROOT = Path(__file__).parent
 TRAINING_WORKFLOW = _ROOT / "workflows" / "train.yaml"
 SERVING_WORKFLOW = _ROOT / "workflows" / "serve.yaml"
 
@@ -190,6 +190,12 @@ def run_training(lm_client, config_id):
         logging.info(f"Training status: {status}")
 
     if status == Status.DEAD:
+        try:
+            logs = lm_client.execution.query_logs(execution_resp.id)
+            for entry in logs.data.result:
+                logging.error(f"[execution log] {entry.timestamp} {entry.msg}")
+        except Exception as log_err:
+            logging.warning(f"Could not fetch execution logs: {log_err}")
         raise RuntimeError(f"Training execution {execution_resp.id} failed")
 
     model_artifact_id = execution.output_artifacts[0].id
