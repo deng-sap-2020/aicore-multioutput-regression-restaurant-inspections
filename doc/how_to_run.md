@@ -33,6 +33,15 @@ All commands must be run from the **project root**.
 docker build -f src/train/Dockerfile -t restaurant-train .
 ```
 
+docker tag restaurant-train zhoudeng2026/restaurant-train:latest
+
+
+docker push zhoudeng2026/restaurant-train:latest    
+
+
+python .\ai_core_prep.py      
+
+
 **Run training:**
 ```bash
 docker run restaurant-train python /app/src/train.py

@@ -85,27 +85,24 @@ def register_application(client):
 
 
 def register_docker_secret(client):
-    docker_config = {
-        "auths": {
-            "https://index.docker.io/v1/": {
-                "username": environ["DOCKER_HUB_USER"],
-                "password": environ["DOCKER_HUB_TOKEN"],
-                "email": environ["DOCKER_HUB_EMAIL"],
-                "auth": base64.b64encode(
-                    f"{environ['DOCKER_HUB_USER']}:{environ['DOCKER_HUB_TOKEN']}".encode()
-                ).decode(),
-            }
-        }
-    }
     def _call():
         client.rest_client.post(
             path="/admin/dockerRegistrySecrets",
             body={
                 "name": "docker-registry-secret",
                 "data": {
-                    ".dockerconfigjson": base64.b64encode(
-                        json.dumps(docker_config).encode()
-                    ).decode()
+                    ".dockerconfigjson": json.dumps({
+                        "auths": {
+                            "https://index.docker.io/v1/": {
+                                "username": environ["DOCKER_HUB_USER"],
+                                "password": environ["DOCKER_HUB_TOKEN"],
+                                "email": environ["DOCKER_HUB_EMAIL"],
+                                "auth": base64.b64encode(
+                                    f"{environ['DOCKER_HUB_USER']}:{environ['DOCKER_HUB_TOKEN']}".encode()
+                                ).decode(),
+                            }
+                        }
+                    })
                 },
             },
         )
@@ -254,18 +251,31 @@ def deploy_model(lm_client, serve_config_id):
 
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(description="Prepare and deploy restaurant inspections model on SAP BTP AI Core.")
+    parser.add_argument("--serve-only", metavar="MODEL_ARTIFACT_ID",
+                        help="Skip training and deploy an existing model artifact by ID.")
+    parser.add_argument("--skip-admin", action="store_true",
+                        help="Skip admin setup steps (secrets, resource group). Use when already set up.")
+    args = parser.parse_args()
+
     admin = _admin_client()
     lm = _lm_client()
 
-    register_git_repository(admin)
-    register_application(admin)
-    register_docker_secret(admin)
-    create_resource_group(admin)
-    register_s3_secret(admin)
+    if not args.skip_admin:
+        register_git_repository(admin)
+        register_application(admin)
+        register_docker_secret(admin)
+        create_resource_group(admin)
+        register_s3_secret(admin)
 
-    artifact_id, scenario_id, workflow = register_training_artifact(lm)
-    config_id = create_training_configuration(lm, artifact_id, scenario_id, workflow)
-    model_artifact_id = run_training(lm, config_id)
+    if args.serve_only:
+        model_artifact_id = args.serve_only
+        logging.info(f"Skipping training. Using existing model artifact: {model_artifact_id}")
+    else:
+        artifact_id, scenario_id, workflow = register_training_artifact(lm)
+        config_id = create_training_configuration(lm, artifact_id, scenario_id, workflow)
+        model_artifact_id = run_training(lm, config_id)
 
     serve_config_id = create_serving_configuration(lm, model_artifact_id)
     deployment_url = deploy_model(lm, serve_config_id)
