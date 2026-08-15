@@ -19,6 +19,7 @@ spec:
   imagePullSecrets:
     - name: docker-registry-secret
   template:
+    apiVersion: serving.kserve.io/v1beta1
     spec: |
       default:
         predictor:
