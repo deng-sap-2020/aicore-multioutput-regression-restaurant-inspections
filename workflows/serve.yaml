@@ -24,12 +24,13 @@ spec:
       default:
         predictor:
           minReplicas: 1
-          containers:
-            - name: kfserving-container
-              image: zhoudeng2026/restaurant-serve:latest
-              ports:
-                - containerPort: 9001
-                  protocol: TCP
-              env:
-                - name: STORAGE_URI
-                  value: "{{inputs.artifacts.inspectionMoRegressionModel}}"
+          podSpec:
+            containers:
+              - name: kfserving-container
+                image: zhoudeng2026/restaurant-serve:latest
+                ports:
+                  - containerPort: 9001
+                    protocol: TCP
+                env:
+                  - name: STORAGE_URI
+                    value: "{{inputs.artifacts.inspectionMoRegressionModel}}"
