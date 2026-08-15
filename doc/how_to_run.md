@@ -28,159 +28,106 @@ python src/train/train.py
 
 All commands must be run from the **project root**.
 
-**Build the image:**
+**Build:**
 ```bash
 docker build -f src/train/Dockerfile -t restaurant-train .
 ```
 
-docker tag restaurant-train zhoudeng2026/restaurant-train:latest
-
-
-docker push zhoudeng2026/restaurant-train:latest    
-
-
-python .\ai_core_prep.py      
-
-
-**Run training:**
+**Run:**
 ```bash
 docker run restaurant-train python /app/src/train.py
 ```
 
-The trained model artifacts are written to `/app/model` inside the container. To persist them on the host, mount a local directory:
-
+To persist model artifacts on the host:
 ```bash
 docker run -v $(pwd)/model_output:/app/model restaurant-train python /app/src/train.py
+```
+
+**Tag and push to Docker Hub:**
+```bash
+docker tag restaurant-train zhoudeng2026/restaurant-train:latest
+docker push zhoudeng2026/restaurant-train:latest
+```
+
+---
+
+## Serving (Docker)
+
+All commands must be run from the **`src/serve/` directory**.
+
+**Build:**
+```bash
+docker build -t restaurant-serve src/serve/
+```
+
+**Run locally** (mount a trained model from `model_output/`):
+```bash
+docker run -p 9001:9001 \
+  -e STORAGE_URI=/app/model \
+  -v $(pwd)/model_output:/app/model \
+  restaurant-serve
+```
+
+Test the endpoint:
+```bash
+curl -X POST http://localhost:9001/v1/models/restaurant-inspections:predict \
+  -H "Content-Type: application/json" \
+  -d @data/test_payload.json
+```
+
+**Tag and push to Docker Hub:**
+```bash
+docker tag restaurant-serve zhoudeng2026/restaurant-serve:latest
+docker push zhoudeng2026/restaurant-serve:latest
 ```
 
 ---
 
 ## Deploy to SAP BTP AI Core
 
-All steps use credentials from `local.env`. Set these shell variables first:
+### Prerequisites
+
+1. Push both Docker images to Docker Hub (see above).
+2. Commit and push `workflows/train.yaml` and `workflows/serve.yaml` to GitHub.
+3. Upload training data to S3:
+   ```bash
+   python store_training_data_2_s3.py
+   ```
+
+### Full run (train + deploy)
 
 ```bash
-source local.env   # or: export $(grep -v '^#' local.env | xargs)
+python ai_core_prep.py
 ```
 
-### 1. Update the workflow with your Docker image
-
-Edit `workflows/train.yaml` and `workflows/serve.yaml` — replace the `<DOCKER-IMAGE-*>` placeholders with your pushed image:
-
-```
-image: zhoudeng2026/restaurant-train:latest   # in train.yaml
-image: zhoudeng2026/restaurant-serve:latest   # in serve.yaml
-```
-
-Then commit and push both files to GitHub. AI Core syncs workflows from the repo automatically.
-
-### 2. Get an OAuth token
+### Serve only (skip training, use existing model artifact)
 
 ```bash
-TOKEN=$(curl -s -X POST "$BTP_TOKEN_URL" \
-  -u "$BTP_CLIENT_ID:$BTP_CLIENT_SECRET" \
-  -d "grant_type=client_credentials" | python -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+python ai_core_prep.py --serve-only <MODEL_ARTIFACT_ID>
 ```
 
-### 3. Register the Docker registry secret (once)
+To find the latest model artifact ID:
+```bash
+python - <<'EOF'
+from dotenv import load_dotenv; from os import environ
+import json, urllib.request, urllib.parse, base64
+load_dotenv("local.env")
+data = urllib.parse.urlencode({"grant_type": "client_credentials"}).encode()
+creds = base64.b64encode(f"{environ['BTP_CLIENT_ID']}:{environ['BTP_CLIENT_SECRET']}".encode()).decode()
+req = urllib.request.Request(environ["BTP_TOKEN_URL"], data=data,
+    headers={"Authorization": f"Basic {creds}", "Content-Type": "application/x-www-form-urlencoded"})
+with urllib.request.urlopen(req) as r: token = json.load(r)["access_token"]
+req = urllib.request.Request(f"{environ['BTP_AI_API_URL']}/v2/lm/artifacts?kind=model",
+    headers={"Authorization": f"Bearer {token}", "AI-Resource-Group": environ["AICORE_RESOURCE_GROUP"]})
+with urllib.request.urlopen(req) as r:
+    [print(f"{a['id']}  {a['name']}  {a['createdAt']}") for a in json.load(r).get("resources",[])]
+EOF
+```
+
+### Skip admin setup (secrets/resource group already configured)
 
 ```bash
-curl -X POST "$BTP_AI_API_URL/v2/admin/secrets" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "docker-registry-secret",
-    "type": "container-registry",
-    "data": {
-      "server": "https://index.docker.io/v1/",
-      "username": "'"$DOCKER_HUB_USER"'",
-      "password": "'"$DOCKER_HUB_TOKEN"'"
-    }
-  }'
+python ai_core_prep.py --serve-only <MODEL_ARTIFACT_ID> --skip-admin
 ```
 
-### 4. Register the training dataset artifact (S3)
-
-```bash
-curl -X POST "$BTP_AI_API_URL/v2/lm/artifacts" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "AI-Resource-Group: $AICORE_RESOURCE_GROUP" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "inspections",
-    "kind": "dataset",
-    "url": "ai://default/inspections",
-    "scenarioId": "inspection-mo-regression-scenario",
-    "description": "Restaurant inspections dataset"
-  }'
-```
-
-Note the returned `id` — use it as `ARTIFACT_ID` in the next step.
-
-### 5. Create a training configuration
-
-```bash
-curl -X POST "$BTP_AI_API_URL/v2/lm/configurations" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "AI-Resource-Group: $AICORE_RESOURCE_GROUP" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "inspection-train-config",
-    "scenarioId": "inspection-mo-regression-scenario",
-    "executableId": "inspection-mo-regression-train-0",
-    "inputArtifactBindings": [
-      { "key": "inspections", "artifactId": "<ARTIFACT_ID>" }
-    ]
-  }'
-```
-
-Note the returned `id` — use it as `CONFIG_ID` in the next step.
-
-### 6. Start a training execution
-
-```bash
-curl -X POST "$BTP_AI_API_URL/v2/lm/executions" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "AI-Resource-Group: $AICORE_RESOURCE_GROUP" \
-  -H "Content-Type: application/json" \
-  -d '{ "configurationId": "<CONFIG_ID>" }'
-```
-
-### 7. Monitor execution status
-
-```bash
-curl "$BTP_AI_API_URL/v2/lm/executions/<EXECUTION_ID>" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "AI-Resource-Group: $AICORE_RESOURCE_GROUP"
-```
-
-Status will move through `PENDING → RUNNING → COMPLETED`. The trained model artifact is registered automatically on completion.
-
-### 8. Create a serving deployment (after training completes)
-
-Create a serving configuration referencing the model output artifact, then start a deployment:
-
-```bash
-curl -X POST "$BTP_AI_API_URL/v2/lm/deployments" \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "AI-Resource-Group: $AICORE_RESOURCE_GROUP" \
-  -H "Content-Type: application/json" \
-  -d '{ "configurationId": "<SERVING_CONFIG_ID>" }'
-```
-
-The deployment URL is available in AI Launchpad under **ML Operations → Deployments** once status reaches `RUNNING`.
-
-**1. Log in:**
-```bash
-docker login -u zhoudeng2026
-```
-
-**2. Tag the image:**
-```bash
-docker tag restaurant-train zhoudeng2026/restaurant-train:latest
-```
-
-**3. Push:**
-```bash
-docker push zhoudeng2026/restaurant-train:latest
-```
+The deployment URL is shown in the logs and available in AI Launchpad under **ML Operations → Deployments**.
