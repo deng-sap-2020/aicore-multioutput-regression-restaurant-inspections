@@ -24,9 +24,8 @@ spec:
       default:
         predictor:
           minReplicas: 1
-          custom:
-            container:
-              name: kfserving-container
+          containers:
+            - name: kfserving-container
               image: zhoudeng2026/restaurant-serve:latest
               ports:
                 - containerPort: 9001
